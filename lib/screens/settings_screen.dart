@@ -271,12 +271,6 @@ class _UserRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final pages = user.isAdmin
-        ? 'All pages'
-        : (user.allowedPages.isEmpty
-            ? 'No pages granted'
-            : user.allowedPages.map((p) => kAppPageLabels[p] ?? p).join(', '));
-
     return ListTile(
       leading: CircleAvatar(
         backgroundColor: user.isAdmin ? kHoneyLight : const Color(0xFFF1F5F9),
@@ -287,9 +281,47 @@ class _UserRow extends StatelessWidget {
         ),
       ),
       title: Text(user.username),
-      subtitle: Text(pages, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: user.isAdmin
+            ? const Text('All pages', style: TextStyle(fontSize: 12, color: kPositiveColor))
+            : (user.allowedPages.isEmpty
+                ? const Text('No pages granted', style: TextStyle(fontSize: 12, color: kWarningColor))
+                : Wrap(
+                    spacing: 5,
+                    runSpacing: 4,
+                    children: user.allowedPages.map((p) => _PageChip(pageKey: p)).toList(),
+                  )),
+      ),
       trailing: const Icon(Icons.chevron_right),
       onTap: () => showEditPermissionsDialog(context, auth, user),
+    );
+  }
+}
+
+class _PageChip extends StatelessWidget {
+  final String pageKey;
+  const _PageChip({required this.pageKey});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(pageIcons[pageKey] ?? Icons.circle_outlined, size: 12, color: kBrandDark),
+          const SizedBox(width: 3),
+          Text(
+            kAppPageLabels[pageKey] ?? pageKey,
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: kBrandDark),
+          ),
+        ],
+      ),
     );
   }
 }

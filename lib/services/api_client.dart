@@ -18,7 +18,12 @@ class ApiClient {
   ApiClient._internal();
   static final ApiClient instance = ApiClient._internal();
 
-  static const String baseUrl = 'https://kosh-finance-production.up.railway.app/api';
+  // Override at build/run time with --dart-define=API_BASE_URL=http://127.0.0.1:8000/api
+  // for local backend testing; defaults to the hosted deployment otherwise.
+  static const String baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'https://kosh-finance-production.up.railway.app/api',
+  );
 
   String? token;
   int? tenantId;
