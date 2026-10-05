@@ -1,16 +1,10 @@
-// Real-device/real-engine tests for flows that touch sqflite. Plain
-// flutter_test widget tests run inside a fake-async clock, and
-// sqflite_common_ffi's internal lock-timeout Timer gets bound to that fake
-// clock when I/O is kicked off from a widget build — it then never fires in
-// any useful way, so DB-dependent flows (login, navigation after auth)
-// effectively hang there. integration_test uses real time throughout, which
-// matches how the shipped app actually runs.
-import 'dart:io';
-
+// Real-device/real-engine tests against the live API's seeded test tenant
+// (see backend's seed_test_tenant management command). These need network
+// access and a running Flutter engine, hence integration_test rather than
+// plain flutter_test.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:kosh_finance/main.dart';
 import 'package:kosh_finance/screens/login_screen.dart';
@@ -32,28 +26,23 @@ Future<void> _pumpUntilFound(WidgetTester tester, Finder finder, {int maxTries =
 Future<void> _bootAndLogIn(WidgetTester tester) async {
   await tester.pumpWidget(const KoshFinanceApp());
   await tester.pump();
-  await _pumpUntilGone(tester, find.byType(CircularProgressIndicator));
 
-  await tester.enterText(find.widgetWithText(TextField, 'Password'), 'admin');
+  await tester.enterText(find.widgetWithText(TextField, 'Username'), 'test_admin');
+  await tester.enterText(find.widgetWithText(TextField, 'Password'), 'kosh-test-admin-1');
   await tester.tap(find.widgetWithText(FilledButton, 'Log in'));
   await tester.pump();
   await _pumpUntilGone(tester, find.byType(LoginScreen));
+  // HomeShell's own data load (over the network) finishes after the login
+  // screen is gone — give it room before interacting with any page.
+  await _pumpUntilGone(tester, find.byType(CircularProgressIndicator));
 }
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  setUpAll(() {
-    if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
-      sqfliteFfiInit();
-      databaseFactory = databaseFactoryFfi;
-    }
-  });
-
   testWidgets('Login screen renders with Kosh branding', (tester) async {
     await tester.pumpWidget(const KoshFinanceApp());
     await tester.pump();
-    await _pumpUntilGone(tester, find.byType(CircularProgressIndicator));
 
     expect(find.text('Kosh Finance'), findsOneWidget);
     expect(find.widgetWithText(TextField, 'Username'), findsOneWidget);
@@ -63,8 +52,8 @@ void main() {
   testWidgets('Wrong password shows an error and does not log in', (tester) async {
     await tester.pumpWidget(const KoshFinanceApp());
     await tester.pump();
-    await _pumpUntilGone(tester, find.byType(CircularProgressIndicator));
 
+    await tester.enterText(find.widgetWithText(TextField, 'Username'), 'test_admin');
     await tester.enterText(find.widgetWithText(TextField, 'Password'), 'not-the-password');
     await tester.tap(find.widgetWithText(FilledButton, 'Log in'));
     await tester.pump();
@@ -74,7 +63,7 @@ void main() {
     expect(find.byType(LoginScreen), findsOneWidget);
   });
 
-  testWidgets('Default admin logs in and can reach every section incl. Settings', (tester) async {
+  testWidgets('test_admin logs in and can reach every section incl. Settings', (tester) async {
     await _bootAndLogIn(tester);
 
     expect(find.text('Dashboard'), findsWidgets);
@@ -92,17 +81,24 @@ void main() {
     await tester.tap(find.widgetWithText(NavigationDestination, 'Settings'));
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(find.text('admin'), findsWidgets);
+    expect(find.text('test_admin'), findsWidgets);
     expect(find.text('Users'), findsOneWidget);
     expect(find.text('Add user'), findsOneWidget);
     expect(find.text('Income sources'), findsOneWidget);
     expect(find.text('Businesses'), findsOneWidget);
-    expect(find.text('Bubbles Lundry'), findsOneWidget);
-    expect(find.text('Koshtech'), findsOneWidget);
   });
 
-  testWidgets('Can log a daily sale for a business', (tester) async {
+  testWidgets('Can add a business, then log a daily sale for it', (tester) async {
     await _bootAndLogIn(tester);
+    final businessName = 'Test Biz ${DateTime.now().millisecondsSinceEpoch}';
+
+    await tester.tap(find.widgetWithText(NavigationDestination, 'Settings'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.widgetWithText(TextButton, 'Add business'));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.enterText(find.widgetWithText(TextField, 'Business name'), businessName);
+    await tester.tap(find.widgetWithText(FilledButton, 'Add'));
+    await _pumpUntilGone(tester, find.text('Add business'));
 
     await tester.tap(find.widgetWithText(NavigationDestination, 'Business'));
     await tester.pump(const Duration(milliseconds: 300));

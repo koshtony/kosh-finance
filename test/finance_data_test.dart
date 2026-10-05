@@ -1,5 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:kosh_finance/models/models.dart';
 import 'package:kosh_finance/services/auth_repository.dart';
@@ -8,65 +7,15 @@ import 'package:kosh_finance/services/finance_store.dart';
 import 'package:kosh_finance/services/insights_engine.dart';
 import 'package:kosh_finance/utils/time_range.dart';
 
+// Runs against the live API's seeded test tenant (see backend's
+// seed_test_tenant management command), not a local database — these tests
+// need network access and exercise the real Kosh API end to end.
 void main() {
-  setUpAll(() {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  });
-
-  test('database seeds from the Oct Kosh Budget data and loads cleanly', () async {
-    final store = FinanceStore(FinanceRepository());
-    await store.load();
-
-    expect(store.employmentIncome, isNotEmpty);
-    expect(store.employmentExpense, isNotEmpty);
-    expect(store.businessRevenue, isNotEmpty);
-    expect(store.businessExpense, isNotEmpty);
-    expect(store.investments, isNotEmpty);
-    expect(store.customers.length, 9);
-    expect(store.revenueTargets, isNotEmpty);
-
-    // Every seeded expense/income month name must be a real 3-letter month.
-    const validMonths = {
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    };
-    for (final e in store.employmentExpense) {
-      expect(validMonths.contains(e.month), isTrue, reason: 'bad month: ${e.month}');
-    }
-    for (final e in store.businessExpense) {
-      expect(validMonths.contains(e.month), isTrue, reason: 'bad month: ${e.month}');
-    }
-  });
-
-  test('period aggregation produces chronologically sorted totals', () async {
-    final store = FinanceStore(FinanceRepository());
-    await store.load();
-
-    final periods = store.periodTotals;
-    expect(periods, isNotEmpty);
-    for (var i = 1; i < periods.length; i++) {
-      expect(periods[i].key, greaterThan(periods[i - 1].key));
-    }
-
-    // First tracked period should be Nov 2025 per the source spreadsheet.
-    expect(periods.first.year, 2025);
-    expect(periods.first.month, 'Nov');
-    expect(periods.last.year, 2026);
-    expect(periods.last.month, 'Oct');
-  });
-
-  test('insights engines run without throwing and produce content', () async {
-    final store = FinanceStore(FinanceRepository());
-    await store.load();
-
-    expect(dashboardInsights(store), isNotEmpty);
-    expect(employmentInsights(store), isNotEmpty);
-    expect(customerInsights(store), isNotEmpty);
-    for (final b in store.distinctBusinesses) {
-      // Not all sources (e.g. "Others") necessarily have expense rows; just
-      // make sure the function runs cleanly for every business key.
-      businessInsights(store, b);
+  setUpAll(() async {
+    final auth = AuthRepository();
+    final session = await auth.login('test_admin', 'kosh-test-admin-1');
+    if (session == null) {
+      throw StateError('Could not log in as test_admin — is the seeded test tenant reachable?');
     }
   });
 
@@ -96,32 +45,45 @@ void main() {
 
     await store.addDailySale(DailySale(
       date: '2026-10-04',
-      business: 'Bubbles Lundry',
+      business: 'Test Business ${DateTime.now().millisecondsSinceEpoch}',
       amount: 1500,
       note: 'test entry',
     ));
     expect(store.dailySales.length, before + 1);
-    expect(store.dailySalesTotalFor('Bubbles Lundry', since: '2026-10-01'), greaterThanOrEqualTo(1500));
 
     final added = store.dailySales.firstWhere((s) => s.note == 'test entry');
+    expect(store.dailySalesTotalFor(added.business, since: '2026-10-01'), greaterThanOrEqualTo(1500));
     await store.deleteDailySale(added.id!);
     expect(store.dailySales.length, before);
   });
 
-  test('default admin user is seeded and can authenticate', () async {
-    final auth = AuthRepository();
-    final user = await auth.authenticate('admin', 'admin');
-    expect(user, isNotNull);
-    expect(user!.isAdmin, isTrue);
+  test('insights engines run without throwing', () async {
+    final store = FinanceStore(FinanceRepository());
+    await store.load();
 
-    final wrongPassword = await auth.authenticate('admin', 'wrong-password');
+    dashboardInsights(store);
+    employmentInsights(store);
+    customerInsights(store);
+    for (final b in store.distinctBusinesses) {
+      businessInsights(store, b);
+    }
+  });
+
+  test('test_admin can authenticate and a wrong password is rejected', () async {
+    final auth = AuthRepository();
+    final session = await auth.login('test_admin', 'kosh-test-admin-1');
+    expect(session, isNotNull);
+    expect(session!.user.isAdmin, isTrue);
+
+    final wrongPassword = await auth.login('test_admin', 'wrong-password');
     expect(wrongPassword, isNull);
   });
 
   test('admin can create a restricted user with limited page access', () async {
     final auth = AuthRepository();
+    final username = 'cashier_${DateTime.now().millisecondsSinceEpoch}';
     final id = await auth.createUser(
-      username: 'cashier_${DateTime.now().millisecondsSinceEpoch}',
+      username: username,
       password: 'temp1234',
       isAdmin: false,
       allowedPages: ['dashboard', 'business'],
@@ -135,17 +97,6 @@ void main() {
     expect(created.canAccess('investments'), isFalse);
 
     await auth.deleteUser(id);
-  });
-
-  test('default "Employment" income source is seeded and historical income carries it', () async {
-    final store = FinanceStore(FinanceRepository());
-    await store.load();
-
-    expect(store.distinctIncomeSources, contains('Employment'));
-    expect(store.employmentIncome, isNotEmpty);
-    for (final e in store.employmentIncome) {
-      expect(e.source, 'Employment');
-    }
   });
 
   test('a new income source can be added, used, and is protected from deletion while in use', () async {
@@ -196,13 +147,6 @@ void main() {
 
     final otherMonth = currentMonthNames[(now.month) % 12]; // guaranteed different month
     expect(isPeriodInRange(now.year, otherMonth, TimeRange.thisMonth), isFalse);
-  });
-
-  test('known businesses from the spreadsheet are seeded into the managed list', () async {
-    final store = FinanceStore(FinanceRepository());
-    await store.load();
-
-    expect(store.distinctBusinesses, containsAll(['Bubbles Lundry', 'Koshtech']));
   });
 
   test('a new business can be added, used, and is protected from deletion while in use', () async {

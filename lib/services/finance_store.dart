@@ -27,7 +27,7 @@ class PeriodTotals {
   double get netExpected => totalIncomeExpected - totalExpenseExpected;
 }
 
-/// Loads everything once from sqlite and keeps it in memory, recomputing
+/// Loads everything from the API once and keeps it in memory, recomputing
 /// derived summaries whenever the underlying data changes. All screens read
 /// from this single source of truth via [ChangeNotifier].
 class FinanceStore extends ChangeNotifier {
@@ -112,9 +112,22 @@ class FinanceStore extends ChangeNotifier {
     return null;
   }
 
-  Future<void> resetAndReseed() async {
-    await repo.resetAndReseed();
-    await load();
+  /// Drops everything cached in memory (e.g. on logout, so the next login's
+  /// first frame doesn't briefly show the previous tenant's data).
+  void clear() {
+    loading = true;
+    employmentIncome = [];
+    employmentExpense = [];
+    businessRevenue = [];
+    businessExpense = [];
+    investments = [];
+    customers = [];
+    checkins = [];
+    revenueTargets = [];
+    dailySales = [];
+    incomeSources = [];
+    businesses = [];
+    notifyListeners();
   }
 
   // ---------------- cross-cutting aggregation ----------------

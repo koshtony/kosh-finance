@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/models.dart';
+import 'api_client.dart';
 import 'auth_repository.dart';
 
 /// Holds the current session and the admin-only user directory. Login state
@@ -23,20 +24,33 @@ class AuthStore extends ChangeNotifier {
     loginError = null;
     notifyListeners();
 
-    final user = await repo.authenticate(username.trim(), password);
-    busy = false;
-    if (user == null) {
-      loginError = 'Incorrect username or password.';
+    try {
+      final session = await repo.login(username.trim(), password);
+      busy = false;
+      if (session == null) {
+        loginError = 'Incorrect username or password.';
+        notifyListeners();
+        return false;
+      }
+      currentUser = session.user;
+      notifyListeners();
+      await refreshUsers();
+      return true;
+    } on NoTenantAccessException {
+      busy = false;
+      loginError = 'Your account has no tenant access yet. Ask an admin to add you.';
+      notifyListeners();
+      return false;
+    } on ApiException catch (e) {
+      busy = false;
+      loginError = e.message;
       notifyListeners();
       return false;
     }
-    currentUser = user;
-    notifyListeners();
-    await refreshUsers();
-    return true;
   }
 
   void logout() {
+    repo.logout();
     currentUser = null;
     users = [];
     notifyListeners();
@@ -66,7 +80,9 @@ class AuthStore extends ChangeNotifier {
       );
       await refreshUsers();
       return null;
-    } catch (e) {
+    } on ApiException catch (e) {
+      return e.message;
+    } catch (_) {
       return 'Could not create user — username may already exist.';
     }
   }
@@ -76,13 +92,17 @@ class AuthStore extends ChangeNotifier {
       final admins = await repo.countAdmins();
       if (admins <= 1) return 'At least one admin account must remain.';
     }
-    await repo.updatePermissions(user.id!, isAdmin: isAdmin, allowedPages: allowedPages);
-    await refreshUsers();
-    if (currentUser?.id == user.id) {
-      currentUser = users.firstWhere((u) => u.id == user.id);
-      notifyListeners();
+    try {
+      await repo.updatePermissions(user.id!, isAdmin: isAdmin, allowedPages: allowedPages);
+      await refreshUsers();
+      if (currentUser?.id == user.id) {
+        currentUser = users.firstWhere((u) => u.id == user.id);
+        notifyListeners();
+      }
+      return null;
+    } on ApiException catch (e) {
+      return e.message;
     }
-    return null;
   }
 
   Future<String?> deleteUser(AppUser user) async {
@@ -93,9 +113,13 @@ class AuthStore extends ChangeNotifier {
     if (user.id == currentUser?.id) {
       return 'You cannot delete the account you are logged in as.';
     }
-    await repo.deleteUser(user.id!);
-    await refreshUsers();
-    return null;
+    try {
+      await repo.deleteUser(user.id!);
+      await refreshUsers();
+      return null;
+    } on ApiException catch (e) {
+      return e.message;
+    }
   }
 
   Future<void> changeOwnPassword(String newPassword) async {

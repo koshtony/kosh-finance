@@ -65,7 +65,10 @@ class SettingsScreen extends StatelessWidget {
                 ListTile(
                   leading: const Icon(Icons.logout, color: kWarningColor),
                   title: const Text('Log out', style: TextStyle(color: kWarningColor)),
-                  onTap: () => auth.logout(),
+                  onTap: () {
+                    store.clear();
+                    auth.logout();
+                  },
                 ),
               ],
             ),

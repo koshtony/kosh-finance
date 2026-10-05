@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../services/auth_store.dart';
+import '../services/finance_store.dart';
 import '../theme.dart';
 import '../widgets/bee_branding.dart';
 
@@ -126,8 +127,12 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  void _submit(AuthStore auth) {
+  void _submit(AuthStore auth) async {
     FocusScope.of(context).unfocus();
-    auth.login(_usernameController.text, _passwordController.text);
+    final ok = await auth.login(_usernameController.text, _passwordController.text);
+    if (ok && mounted) {
+      // ignore: use_build_context_synchronously
+      context.read<FinanceStore>().load();
+    }
   }
 }

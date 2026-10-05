@@ -1,234 +1,398 @@
-import '../db/db_helper.dart';
 import '../models/models.dart';
+import 'api_client.dart';
 
-/// Thin data-access layer over sqflite. Every screen reads/writes through here.
+int _byYearMonth(int ay, String am, int by, String bm) {
+  final c = ay.compareTo(by);
+  return c != 0 ? c : am.compareTo(bm);
+}
+
+/// Thin data-access layer over the Kosh API. Every screen reads/writes
+/// through here. Finance rows are scoped to the signed-in user's tenant
+/// (set on [ApiClient] at login); `source`/`business` stay plain name
+/// strings at the model layer (matching the existing UI, which only ever
+/// picks from a name list) and are resolved to the API's `IncomeSource`/
+/// `Business` foreign keys here, auto-creating one if a brand-new name is
+/// used before Settings would otherwise have created it.
 class FinanceRepository {
-  final _dbh = DbHelper.instance;
+  final _api = ApiClient.instance;
+  int get _tid => _api.tenantId!;
+
+  List<IncomeSource> _sourcesCache = [];
+  List<BusinessEntity> _businessesCache = [];
+
+  Future<int> _resolveSourceId(String name) async {
+    IncomeSource? match = _firstByName(_sourcesCache, name);
+    if (match == null) {
+      await getIncomeSources();
+      match = _firstByName(_sourcesCache, name);
+    }
+    if (match != null) return match.id!;
+    return addIncomeSource(name);
+  }
+
+  Future<int> _resolveBusinessId(String name) async {
+    BusinessEntity? match = _firstByName(_businessesCache, name);
+    if (match == null) {
+      await getBusinesses();
+      match = _firstByName(_businessesCache, name);
+    }
+    if (match != null) return match.id!;
+    return addBusiness(name);
+  }
+
+  T? _firstByName<T>(List<T> items, String name) {
+    for (final item in items) {
+      final itemName = (item as dynamic).name as String;
+      if (itemName.toLowerCase() == name.toLowerCase()) return item;
+    }
+    return null;
+  }
 
   // ---------------- Employment income ----------------
 
   Future<List<EmploymentIncome>> getEmploymentIncome() async {
-    final db = await _dbh.database;
-    final rows = await db.query('employment_income', orderBy: 'year, month');
-    return rows.map(EmploymentIncome.fromMap).toList();
+    final rows = await _api.getAllPages('/tenants/$_tid/employment-income/');
+    final list = rows
+        .map((r) => EmploymentIncome(
+              id: r['id'] as int,
+              year: r['year'] as int,
+              month: r['month'] as String,
+              type: r['type'] as String,
+              source: (r['source_name'] as String?) ?? '',
+              expected: toDoubleOrNull(r['expected']),
+              actual: toDoubleOrNull(r['actual']),
+            ))
+        .toList();
+    list.sort((a, b) => _byYearMonth(a.year, a.month, b.year, b.month));
+    return list;
   }
 
   Future<int> addEmploymentIncome(EmploymentIncome e) async {
-    final db = await _dbh.database;
-    return db.insert('employment_income', e.toMap());
+    final sourceId = await _resolveSourceId(e.source);
+    final res = await _api.post('/tenants/$_tid/employment-income/', {
+      'source': sourceId,
+      'year': e.year,
+      'month': e.month,
+      'type': e.type,
+      'expected': e.expected,
+      'actual': e.actual,
+    });
+    return res['id'] as int;
   }
 
   Future<void> updateEmploymentIncome(EmploymentIncome e) async {
-    final db = await _dbh.database;
-    await db.update('employment_income', e.toMap(),
-        where: 'id = ?', whereArgs: [e.id]);
+    final sourceId = await _resolveSourceId(e.source);
+    await _api.patch('/tenants/$_tid/employment-income/${e.id}/', {
+      'source': sourceId,
+      'year': e.year,
+      'month': e.month,
+      'type': e.type,
+      'expected': e.expected,
+      'actual': e.actual,
+    });
   }
 
   Future<void> deleteEmploymentIncome(int id) async {
-    final db = await _dbh.database;
-    await db.delete('employment_income', where: 'id = ?', whereArgs: [id]);
+    await _api.delete('/tenants/$_tid/employment-income/$id/');
   }
 
   // ---------------- Income sources ----------------
 
   Future<List<IncomeSource>> getIncomeSources() async {
-    final db = await _dbh.database;
-    final rows = await db.query('income_sources', orderBy: 'name');
-    return rows.map(IncomeSource.fromMap).toList();
+    final rows = await _api.getAllPages('/tenants/$_tid/income-sources/');
+    _sourcesCache = rows.map((r) => IncomeSource(id: r['id'] as int, name: r['name'] as String)).toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    return _sourcesCache;
   }
 
   Future<int> addIncomeSource(String name) async {
-    final db = await _dbh.database;
-    return db.insert('income_sources', {'name': name});
+    final res = await _api.post('/tenants/$_tid/income-sources/', {'name': name});
+    return res['id'] as int;
   }
 
   Future<void> deleteIncomeSource(int id) async {
-    final db = await _dbh.database;
-    await db.delete('income_sources', where: 'id = ?', whereArgs: [id]);
+    await _api.delete('/tenants/$_tid/income-sources/$id/');
   }
 
   Future<int> countIncomeEntriesForSource(String source) async {
-    final db = await _dbh.database;
-    final rows = await db.query('employment_income', where: 'source = ?', whereArgs: [source]);
-    return rows.length;
+    final match = _firstByName(_sourcesCache, source);
+    if (match == null) return 0;
+    final rows = await _api.getAllPages('/tenants/$_tid/employment-income/');
+    return rows.where((r) => r['source'] == match.id).length;
   }
 
   // ---------------- Businesses ----------------
 
   Future<List<BusinessEntity>> getBusinesses() async {
-    final db = await _dbh.database;
-    final rows = await db.query('businesses', orderBy: 'name');
-    return rows.map(BusinessEntity.fromMap).toList();
+    final rows = await _api.getAllPages('/tenants/$_tid/businesses/');
+    _businessesCache = rows.map((r) => BusinessEntity(id: r['id'] as int, name: r['name'] as String)).toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    return _businessesCache;
   }
 
   Future<int> addBusiness(String name) async {
-    final db = await _dbh.database;
-    return db.insert('businesses', {'name': name});
+    final res = await _api.post('/tenants/$_tid/businesses/', {'name': name});
+    return res['id'] as int;
   }
 
   Future<void> deleteBusiness(int id) async {
-    final db = await _dbh.database;
-    await db.delete('businesses', where: 'id = ?', whereArgs: [id]);
+    await _api.delete('/tenants/$_tid/businesses/$id/');
   }
 
   Future<int> countEntriesForBusiness(String name) async {
-    final db = await _dbh.database;
-    final revenue = await db.query('business_revenue', where: 'business = ?', whereArgs: [name]);
-    final expense = await db.query('business_expense', where: 'business = ?', whereArgs: [name]);
-    final sales = await db.query('daily_sales', where: 'business = ?', whereArgs: [name]);
-    return revenue.length + expense.length + sales.length;
+    final match = _firstByName(_businessesCache, name);
+    if (match == null) return 0;
+    final revenue = await _api.getAllPages('/tenants/$_tid/business-revenue/');
+    final expense = await _api.getAllPages('/tenants/$_tid/business-expenses/');
+    final sales = await _api.getAllPages('/tenants/$_tid/daily-sales/');
+    return [revenue, expense, sales]
+        .map((rows) => rows.where((r) => r['business'] == match.id).length)
+        .reduce((a, b) => a + b);
   }
 
   // ---------------- Employment expense ----------------
 
   Future<List<EmploymentExpense>> getEmploymentExpense() async {
-    final db = await _dbh.database;
-    final rows = await db.query('employment_expense', orderBy: 'year, month');
-    return rows.map(EmploymentExpense.fromMap).toList();
+    final rows = await _api.getAllPages('/tenants/$_tid/employment-expenses/');
+    final list = rows
+        .map((r) => EmploymentExpense(
+              id: r['id'] as int,
+              year: r['year'] as int,
+              month: r['month'] as String,
+              item: r['item'] as String,
+              estimated: toDoubleOrNull(r['estimated']),
+              actual: toDoubleOrNull(r['actual']),
+            ))
+        .toList();
+    list.sort((a, b) => _byYearMonth(a.year, a.month, b.year, b.month));
+    return list;
   }
 
   Future<int> addEmploymentExpense(EmploymentExpense e) async {
-    final db = await _dbh.database;
-    return db.insert('employment_expense', e.toMap());
+    final res = await _api.post('/tenants/$_tid/employment-expenses/', {
+      'year': e.year,
+      'month': e.month,
+      'item': e.item,
+      'estimated': e.estimated,
+      'actual': e.actual,
+    });
+    return res['id'] as int;
   }
 
   Future<void> updateEmploymentExpense(EmploymentExpense e) async {
-    final db = await _dbh.database;
-    await db.update('employment_expense', e.toMap(),
-        where: 'id = ?', whereArgs: [e.id]);
+    await _api.patch('/tenants/$_tid/employment-expenses/${e.id}/', {
+      'year': e.year,
+      'month': e.month,
+      'item': e.item,
+      'estimated': e.estimated,
+      'actual': e.actual,
+    });
   }
 
   Future<void> deleteEmploymentExpense(int id) async {
-    final db = await _dbh.database;
-    await db.delete('employment_expense', where: 'id = ?', whereArgs: [id]);
+    await _api.delete('/tenants/$_tid/employment-expenses/$id/');
   }
 
   // ---------------- Business revenue ----------------
 
   Future<List<BusinessRevenue>> getBusinessRevenue() async {
-    final db = await _dbh.database;
-    final rows = await db.query('business_revenue', orderBy: 'year, month');
-    return rows.map(BusinessRevenue.fromMap).toList();
+    final rows = await _api.getAllPages('/tenants/$_tid/business-revenue/');
+    final list = rows
+        .map((r) => BusinessRevenue(
+              id: r['id'] as int,
+              year: r['year'] as int,
+              month: r['month'] as String,
+              business: (r['business_name'] as String?) ?? '',
+              expected: toDoubleOrNull(r['expected']),
+              actual: toDoubleOrNull(r['actual']),
+            ))
+        .toList();
+    list.sort((a, b) => _byYearMonth(a.year, a.month, b.year, b.month));
+    return list;
   }
 
   Future<int> addBusinessRevenue(BusinessRevenue e) async {
-    final db = await _dbh.database;
-    return db.insert('business_revenue', e.toMap());
+    final businessId = await _resolveBusinessId(e.business);
+    final res = await _api.post('/tenants/$_tid/business-revenue/', {
+      'business': businessId,
+      'year': e.year,
+      'month': e.month,
+      'expected': e.expected,
+      'actual': e.actual,
+    });
+    return res['id'] as int;
   }
 
   Future<void> updateBusinessRevenue(BusinessRevenue e) async {
-    final db = await _dbh.database;
-    await db.update('business_revenue', e.toMap(),
-        where: 'id = ?', whereArgs: [e.id]);
+    final businessId = await _resolveBusinessId(e.business);
+    await _api.patch('/tenants/$_tid/business-revenue/${e.id}/', {
+      'business': businessId,
+      'year': e.year,
+      'month': e.month,
+      'expected': e.expected,
+      'actual': e.actual,
+    });
   }
 
   Future<void> deleteBusinessRevenue(int id) async {
-    final db = await _dbh.database;
-    await db.delete('business_revenue', where: 'id = ?', whereArgs: [id]);
+    await _api.delete('/tenants/$_tid/business-revenue/$id/');
   }
 
   // ---------------- Business expense ----------------
 
   Future<List<BusinessExpense>> getBusinessExpense() async {
-    final db = await _dbh.database;
-    final rows = await db.query('business_expense', orderBy: 'year, month');
-    return rows.map(BusinessExpense.fromMap).toList();
+    final rows = await _api.getAllPages('/tenants/$_tid/business-expenses/');
+    final list = rows
+        .map((r) => BusinessExpense(
+              id: r['id'] as int,
+              year: r['year'] as int,
+              month: r['month'] as String,
+              item: r['item'] as String,
+              business: (r['business_name'] as String?) ?? '',
+              estimated: toDoubleOrNull(r['estimated']),
+              actual: toDoubleOrNull(r['actual']),
+            ))
+        .toList();
+    list.sort((a, b) => _byYearMonth(a.year, a.month, b.year, b.month));
+    return list;
   }
 
   Future<int> addBusinessExpense(BusinessExpense e) async {
-    final db = await _dbh.database;
-    return db.insert('business_expense', e.toMap());
+    final businessId = await _resolveBusinessId(e.business);
+    final res = await _api.post('/tenants/$_tid/business-expenses/', {
+      'business': businessId,
+      'year': e.year,
+      'month': e.month,
+      'item': e.item,
+      'estimated': e.estimated,
+      'actual': e.actual,
+    });
+    return res['id'] as int;
   }
 
   Future<void> updateBusinessExpense(BusinessExpense e) async {
-    final db = await _dbh.database;
-    await db.update('business_expense', e.toMap(),
-        where: 'id = ?', whereArgs: [e.id]);
+    final businessId = await _resolveBusinessId(e.business);
+    await _api.patch('/tenants/$_tid/business-expenses/${e.id}/', {
+      'business': businessId,
+      'year': e.year,
+      'month': e.month,
+      'item': e.item,
+      'estimated': e.estimated,
+      'actual': e.actual,
+    });
   }
 
   Future<void> deleteBusinessExpense(int id) async {
-    final db = await _dbh.database;
-    await db.delete('business_expense', where: 'id = ?', whereArgs: [id]);
+    await _api.delete('/tenants/$_tid/business-expenses/$id/');
   }
 
   // ---------------- Investments ----------------
 
   Future<List<InvestmentEntry>> getInvestments() async {
-    final db = await _dbh.database;
-    final rows = await db.query('investments', orderBy: 'year, month');
-    return rows.map(InvestmentEntry.fromMap).toList();
+    final rows = await _api.getAllPages('/tenants/$_tid/investments/');
+    final list = rows
+        .map((r) => InvestmentEntry(
+              id: r['id'] as int,
+              year: r['year'] as int,
+              month: r['month'] as String,
+              closingValue: toDoubleOrNull(r['closing_value']),
+              totalInterest: toDoubleOrNull(r['total_interest']),
+              currentMonthIncome: toDoubleOrNull(r['current_month_income']),
+            ))
+        .toList();
+    list.sort((a, b) => _byYearMonth(a.year, a.month, b.year, b.month));
+    return list;
   }
 
   Future<int> addInvestment(InvestmentEntry e) async {
-    final db = await _dbh.database;
-    return db.insert('investments', e.toMap());
+    final res = await _api.post('/tenants/$_tid/investments/', {
+      'year': e.year,
+      'month': e.month,
+      'closing_value': e.closingValue,
+      'total_interest': e.totalInterest,
+      'current_month_income': e.currentMonthIncome,
+    });
+    return res['id'] as int;
   }
 
   Future<void> updateInvestment(InvestmentEntry e) async {
-    final db = await _dbh.database;
-    await db.update('investments', e.toMap(), where: 'id = ?', whereArgs: [e.id]);
+    await _api.patch('/tenants/$_tid/investments/${e.id}/', {
+      'year': e.year,
+      'month': e.month,
+      'closing_value': e.closingValue,
+      'total_interest': e.totalInterest,
+      'current_month_income': e.currentMonthIncome,
+    });
   }
 
   Future<void> deleteInvestment(int id) async {
-    final db = await _dbh.database;
-    await db.delete('investments', where: 'id = ?', whereArgs: [id]);
+    await _api.delete('/tenants/$_tid/investments/$id/');
   }
 
   // ---------------- Customers ----------------
 
   Future<List<Customer>> getCustomers() async {
-    final db = await _dbh.database;
-    final rows = await db.query('customers', orderBy: 'name');
-    return rows.map(Customer.fromMap).toList();
+    final rows = await _api.getAllPages('/tenants/$_tid/customers/');
+    final list = rows.map(_customerFromJson).toList();
+    list.sort((a, b) => a.name.compareTo(b.name));
+    return list;
   }
 
+  Customer _customerFromJson(dynamic r) => Customer(
+        id: r['id'] as int,
+        name: r['name'] as String,
+        phone: (r['phone'] as String?)?.isNotEmpty == true ? r['phone'] as String : null,
+        category: (r['category'] as String?)?.isNotEmpty == true ? r['category'] as String : null,
+        avgSpending: toDoubleOrNull(r['avg_spending']),
+      );
+
   Future<int> addCustomer(Customer c) async {
-    final db = await _dbh.database;
-    return db.insert('customers', c.toMap());
+    final res = await _api.post('/tenants/$_tid/customers/', {
+      'name': c.name,
+      'phone': c.phone ?? '',
+      'category': c.category ?? '',
+      'avg_spending': c.avgSpending,
+    });
+    return res['id'] as int;
   }
 
   Future<void> updateCustomer(Customer c) async {
-    final db = await _dbh.database;
-    await db.update('customers', c.toMap(), where: 'id = ?', whereArgs: [c.id]);
+    await _api.patch('/tenants/$_tid/customers/${c.id}/', {
+      'name': c.name,
+      'phone': c.phone ?? '',
+      'category': c.category ?? '',
+      'avg_spending': c.avgSpending,
+    });
   }
 
   Future<void> deleteCustomer(int id) async {
-    final db = await _dbh.database;
-    await db.delete('customer_checkins', where: 'customerId = ?', whereArgs: [id]);
-    await db.delete('customers', where: 'id = ?', whereArgs: [id]);
-  }
-
-  Future<List<CustomerCheckin>> getCheckinsForCustomer(int customerId) async {
-    final db = await _dbh.database;
-    final rows = await db.query('customer_checkins',
-        where: 'customerId = ?', whereArgs: [customerId]);
-    return rows.map(CustomerCheckin.fromMap).toList();
+    await _api.delete('/tenants/$_tid/customers/$id/');
   }
 
   Future<List<CustomerCheckin>> getAllCheckins() async {
-    final db = await _dbh.database;
-    final rows = await db.query('customer_checkins');
-    return rows.map(CustomerCheckin.fromMap).toList();
+    final rows = await _api.getAllPages('/tenants/$_tid/customer-checkins/');
+    return rows.map(_checkinFromJson).toList();
   }
+
+  CustomerCheckin _checkinFromJson(dynamic r) => CustomerCheckin(
+        id: r['id'] as int,
+        customerId: r['customer'] as int,
+        month: r['month'] as String,
+        week: r['week'] as int,
+        status: r['status'] as String?,
+      );
 
   /// Insert or update the checkin for (customerId, month, week).
   Future<void> setCheckin(int customerId, String month, int week, String? status) async {
-    final db = await _dbh.database;
-    final existing = await db.query(
-      'customer_checkins',
-      where: 'customerId = ? AND month = ? AND week = ?',
-      whereArgs: [customerId, month, week],
+    final rows = await _api.getAllPages('/tenants/$_tid/customer-checkins/');
+    final existing = rows.where(
+      (r) => r['customer'] == customerId && r['month'] == month && r['week'] == week,
     );
     if (existing.isNotEmpty) {
-      await db.update(
-        'customer_checkins',
-        {'status': status},
-        where: 'id = ?',
-        whereArgs: [existing.first['id']],
-      );
+      await _api.patch('/tenants/$_tid/customer-checkins/${existing.first['id']}/', {'status': status});
     } else {
-      await db.insert('customer_checkins', {
-        'customerId': customerId,
+      await _api.post('/tenants/$_tid/customer-checkins/', {
+        'customer': customerId,
         'month': month,
         'week': week,
         'status': status,
@@ -239,48 +403,80 @@ class FinanceRepository {
   // ---------------- Daily sales ----------------
 
   Future<List<DailySale>> getDailySales() async {
-    final db = await _dbh.database;
-    final rows = await db.query('daily_sales', orderBy: 'date DESC, id DESC');
-    return rows.map(DailySale.fromMap).toList();
+    final rows = await _api.getAllPages('/tenants/$_tid/daily-sales/');
+    final list = rows
+        .map((r) => DailySale(
+              id: r['id'] as int,
+              date: r['date'] as String,
+              business: (r['business_name'] as String?) ?? '',
+              amount: toDoubleOrNull(r['amount']) ?? 0,
+              note: (r['note'] as String?)?.isNotEmpty == true ? r['note'] as String : null,
+            ))
+        .toList();
+    list.sort((a, b) {
+      final c = b.date.compareTo(a.date);
+      return c != 0 ? c : (b.id ?? 0).compareTo(a.id ?? 0);
+    });
+    return list;
   }
 
   Future<int> addDailySale(DailySale e) async {
-    final db = await _dbh.database;
-    return db.insert('daily_sales', e.toMap());
+    final businessId = await _resolveBusinessId(e.business);
+    final res = await _api.post('/tenants/$_tid/daily-sales/', {
+      'business': businessId,
+      'date': e.date,
+      'amount': e.amount,
+      'note': e.note ?? '',
+    });
+    return res['id'] as int;
   }
 
   Future<void> updateDailySale(DailySale e) async {
-    final db = await _dbh.database;
-    await db.update('daily_sales', e.toMap(), where: 'id = ?', whereArgs: [e.id]);
+    final businessId = await _resolveBusinessId(e.business);
+    await _api.patch('/tenants/$_tid/daily-sales/${e.id}/', {
+      'business': businessId,
+      'date': e.date,
+      'amount': e.amount,
+      'note': e.note ?? '',
+    });
   }
 
   Future<void> deleteDailySale(int id) async {
-    final db = await _dbh.database;
-    await db.delete('daily_sales', where: 'id = ?', whereArgs: [id]);
+    await _api.delete('/tenants/$_tid/daily-sales/$id/');
   }
 
   // ---------------- Revenue targets ----------------
 
   Future<List<RevenueTarget>> getRevenueTargets() async {
-    final db = await _dbh.database;
-    final rows = await db.query('revenue_targets');
-    return rows.map(RevenueTarget.fromMap).toList();
+    final rows = await _api.getAllPages('/tenants/$_tid/revenue-targets/');
+    return rows
+        .map((r) => RevenueTarget(
+              id: r['id'] as int,
+              month: r['month'] as String,
+              target: toDoubleOrNull(r['target']),
+              actual: toDoubleOrNull(r['actual']),
+            ))
+        .toList();
   }
 
   Future<int> addRevenueTarget(RevenueTarget t) async {
-    final db = await _dbh.database;
-    return db.insert('revenue_targets', t.toMap());
+    final res = await _api.post('/tenants/$_tid/revenue-targets/', {
+      'month': t.month,
+      'target': t.target,
+      'actual': t.actual,
+    });
+    return res['id'] as int;
   }
 
   Future<void> updateRevenueTarget(RevenueTarget t) async {
-    final db = await _dbh.database;
-    await db.update('revenue_targets', t.toMap(), where: 'id = ?', whereArgs: [t.id]);
+    await _api.patch('/tenants/$_tid/revenue-targets/${t.id}/', {
+      'month': t.month,
+      'target': t.target,
+      'actual': t.actual,
+    });
   }
 
   Future<void> deleteRevenueTarget(int id) async {
-    final db = await _dbh.database;
-    await db.delete('revenue_targets', where: 'id = ?', whereArgs: [id]);
+    await _api.delete('/tenants/$_tid/revenue-targets/$id/');
   }
-
-  Future<void> resetAndReseed() => _dbh.resetAndReseed();
 }

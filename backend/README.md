@@ -15,7 +15,9 @@ reference variable.)
 - **Tenant** — an organization/workspace. Every finance row belongs to
   exactly one tenant.
 - **Membership** — links a Django `User` to a `Tenant` with a role
-  (owner/admin/member). A user can belong to multiple tenants.
+  (owner/admin/member) and, for `member`, a comma-separated `allowed_pages`
+  list (owners/admins implicitly see every page). A user can belong to
+  multiple tenants.
 - Row visibility is enforced in one place (`tenants/scoping.py`) and used by
   both the Django admin (`TenantScopedAdmin`) and the API
   (`TenantScopedViewSetMixin`): a superuser sees everything; everyone else
@@ -37,8 +39,14 @@ Send it as `Authorization: Token <token>` on every other request (DRF's
 browsable API also accepts session auth, so you can click around
 `/api/tenants/1/businesses/` while logged into `/admin/` in the same browser).
 
-- `GET /api/me/` — current user + tenant memberships
+- `GET /api/me/` — current user + tenant memberships (each with
+  `role`/`allowed_pages`/`is_admin`)
 - `GET /api/tenants/` — tenants you belong to (all, for a superuser)
+- `/api/tenants/<tenant_id>/members/` — manage who has access to a tenant
+  (`username`, `role`, `allowed_pages`). Any member can list; only an
+  owner/admin member (or superuser) can create/update/delete. Creating a
+  member with a `username` that doesn't exist yet also creates the Django
+  user; `password` resets/sets their login password.
 - Everything else is nested under a tenant:
   `/api/tenants/<tenant_id>/income-sources/`,
   `/api/tenants/<tenant_id>/businesses/`,

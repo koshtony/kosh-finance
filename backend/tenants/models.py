@@ -33,6 +33,9 @@ class Membership(models.Model):
     )
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="memberships")
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default=ROLE_MEMBER)
+    # Comma-separated page keys this member may open when role == "member".
+    # Owners/admins implicitly have access to every page regardless of this.
+    allowed_pages = models.CharField(max_length=200, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -41,3 +44,7 @@ class Membership(models.Model):
 
     def __str__(self):
         return f"{self.user} @ {self.tenant} ({self.role})"
+
+    @property
+    def is_admin(self):
+        return self.role in (self.ROLE_OWNER, self.ROLE_ADMIN)

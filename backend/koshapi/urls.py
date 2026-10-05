@@ -16,5 +16,6 @@ urlpatterns = [
     path("api/auth/token/", obtain_auth_token, name="api-token-auth"),
     path("api/me/", MeView.as_view(), name="api-me"),
     path("api/", include(tenants_router.urls)),
+    path("api/tenants/<int:tenant_pk>/", include("tenants.urls")),
     path("api/tenants/<int:tenant_pk>/", include("finance.urls")),
 ]
