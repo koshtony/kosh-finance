@@ -88,83 +88,18 @@ class _HoneycombPainter extends CustomPainter {
       oldDelegate.color != color || oldDelegate.radius != radius;
 }
 
-/// A small hand-drawn bee mark used as the Kosh Finance logo, so the app
-/// doesn't depend on any bundled image asset.
+/// The Beezy Finance bee mark (trimmed from the brand logo, background
+/// keyed to transparent) — see assets/branding/.
 class BeeLogo extends StatelessWidget {
   final double size;
   const BeeLogo({super.key, this.size = 64});
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: size,
+    return Image.asset(
+      'assets/branding/bee_transparent.png',
       height: size,
-      child: CustomPaint(painter: _BeePainter()),
+      fit: BoxFit.contain,
     );
   }
-}
-
-class _BeePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width;
-    final h = size.height;
-    final center = Offset(w / 2, h / 2 + h * 0.05);
-
-    final wingPaint = Paint()..color = Colors.white.withValues(alpha: 0.85);
-    final wingOutline = Paint()
-      ..color = kBrandDark.withValues(alpha: 0.4)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-
-    // Wings
-    final leftWing = Rect.fromCenter(
-        center: center.translate(-w * 0.22, -h * 0.18), width: w * 0.42, height: h * 0.3);
-    final rightWing = Rect.fromCenter(
-        center: center.translate(w * 0.22, -h * 0.18), width: w * 0.42, height: h * 0.3);
-    canvas.drawOval(leftWing, wingPaint);
-    canvas.drawOval(leftWing, wingOutline);
-    canvas.drawOval(rightWing, wingPaint);
-    canvas.drawOval(rightWing, wingOutline);
-
-    // Body
-    final bodyRect = Rect.fromCenter(center: center, width: w * 0.56, height: h * 0.62);
-    final bodyPath = Path()..addOval(bodyRect);
-    canvas.drawPath(bodyPath, Paint()..color = kHoneyLight);
-
-    // Stripes
-    final stripePaint = Paint()..color = kBrandDark;
-    canvas.save();
-    canvas.clipPath(bodyPath);
-    for (final dy in [-0.18, 0.02, 0.22]) {
-      final stripeRect = Rect.fromCenter(
-        center: center.translate(0, h * dy),
-        width: w * 0.6,
-        height: h * 0.09,
-      );
-      canvas.drawRect(stripeRect, stripePaint);
-    }
-    canvas.restore();
-    canvas.drawOval(bodyRect, Paint()
-      ..color = kBrandDark
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5);
-
-    // Eyes
-    final eyePaint = Paint()..color = kBrandDark;
-    canvas.drawCircle(center.translate(-w * 0.08, -h * 0.26), w * 0.035, eyePaint);
-    canvas.drawCircle(center.translate(w * 0.08, -h * 0.26), w * 0.035, eyePaint);
-
-    // Antennae
-    final antennaPaint = Paint()
-      ..color = kBrandDark
-      ..strokeWidth = 1.6
-      ..style = PaintingStyle.stroke;
-    final base = center.translate(0, -h * 0.3);
-    canvas.drawLine(base, base.translate(-w * 0.1, -h * 0.16), antennaPaint);
-    canvas.drawLine(base, base.translate(w * 0.1, -h * 0.16), antennaPaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _BeePainter oldDelegate) => false;
 }

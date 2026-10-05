@@ -40,11 +40,11 @@ Future<void> _bootAndLogIn(WidgetTester tester) async {
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('Login screen renders with Kosh branding', (tester) async {
+  testWidgets('Login screen renders with Beezy branding', (tester) async {
     await tester.pumpWidget(const KoshFinanceApp());
     await tester.pump();
 
-    expect(find.text('Kosh Finance'), findsOneWidget);
+    expect(find.text('Beezy Finance'), findsOneWidget);
     expect(find.widgetWithText(TextField, 'Username'), findsOneWidget);
     expect(find.widgetWithText(TextField, 'Password'), findsOneWidget);
   });
@@ -67,7 +67,7 @@ void main() {
     await _bootAndLogIn(tester);
 
     expect(find.text('Dashboard'), findsWidgets);
-    expect(find.text('Kosh Finance'), findsOneWidget);
+    expect(find.text('Beezy Finance'), findsOneWidget);
 
     for (final label in ['Sources', 'Business', 'Invest', 'Customers', 'Settings', 'Dashboard']) {
       await tester.tap(find.widgetWithText(NavigationDestination, label));

@@ -57,7 +57,7 @@ class _HomeShellState extends State<HomeShell> {
 
     if (pages.isEmpty) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Kosh Finance')),
+        appBar: AppBar(title: const Text('Beezy Finance')),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),

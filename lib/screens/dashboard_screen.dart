@@ -40,7 +40,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           children: const [
             BeeLogo(size: 28),
             SizedBox(width: 8),
-            Text('Kosh Finance'),
+            Text('Beezy Finance'),
           ],
         ),
       ),

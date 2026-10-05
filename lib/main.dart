@@ -25,7 +25,7 @@ class KoshFinanceApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthStore(AuthRepository())),
       ],
       child: MaterialApp(
-        title: 'Kosh Finance',
+        title: 'Beezy Finance',
         debugShowCheckedModeBanner: false,
         theme: buildAppTheme(),
         home: const _AuthGate(),

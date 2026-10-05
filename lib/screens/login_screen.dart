@@ -43,7 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     const BeeLogo(size: 84),
                     const SizedBox(height: 16),
                     const Text(
-                      'Kosh Finance',
+                      'Beezy Finance',
                       style: TextStyle(
                         fontSize: 26,
                         fontWeight: FontWeight.w800,
