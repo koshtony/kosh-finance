@@ -28,6 +28,17 @@ class Membership(models.Model):
         (ROLE_MEMBER, "Member"),
     ]
 
+    # Keep in sync with the Flutter app's kAppPageKeys/kAppPageLabels
+    # (lib/models/models.dart) — these are the pages a "member" role can be
+    # individually granted. Owners/admins implicitly get all of them.
+    PAGE_CHOICES = [
+        ("dashboard", "Dashboard"),
+        ("employment", "Sources"),
+        ("business", "Business"),
+        ("investments", "Invest"),
+        ("customers", "Customers"),
+    ]
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="memberships"
     )
@@ -48,3 +59,7 @@ class Membership(models.Model):
     @property
     def is_admin(self):
         return self.role in (self.ROLE_OWNER, self.ROLE_ADMIN)
+
+    @property
+    def allowed_pages_list(self):
+        return [p for p in self.allowed_pages.split(",") if p]

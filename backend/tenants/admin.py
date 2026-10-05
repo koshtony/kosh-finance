@@ -1,4 +1,6 @@
+from django import forms
 from django.contrib import admin
+from django.utils.html import format_html
 
 from .models import Membership, Tenant
 from .scoping import tenant_ids_for_user
@@ -48,12 +50,47 @@ class TenantAdmin(admin.ModelAdmin):
         return qs.filter(id__in=ids)
 
 
+class MembershipAdminForm(forms.ModelForm):
+    """Renders `allowed_pages` (a comma-separated string on the model) as
+    checkboxes instead of a raw text field — picked from the same page list
+    the Flutter app uses, so there's no need to know or spell the keys."""
+
+    allowed_pages = forms.MultipleChoiceField(
+        choices=Membership.PAGE_CHOICES,
+        widget=forms.CheckboxSelectMultiple,
+        required=False,
+        label="Allowed pages",
+        help_text="Only applies when role is “Member” — Owners/Admins always see every page.",
+    )
+
+    class Meta:
+        model = Membership
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.pk:
+            self.initial["allowed_pages"] = self.instance.allowed_pages_list
+
+    def clean_allowed_pages(self):
+        return ",".join(self.cleaned_data["allowed_pages"])
+
+
 @admin.register(Membership)
 class MembershipAdmin(admin.ModelAdmin):
-    list_display = ("user", "tenant", "role", "created_at")
+    form = MembershipAdminForm
+    list_display = ("user", "tenant", "role", "allowed_pages_display", "created_at")
     list_filter = ("role", "tenant")
     search_fields = ("user__username", "user__email", "tenant__name")
     autocomplete_fields = ("user", "tenant")
+
+    @admin.display(description="Allowed pages")
+    def allowed_pages_display(self, obj):
+        if obj.is_admin:
+            return format_html("<em>All pages (admin)</em>")
+        labels = dict(Membership.PAGE_CHOICES)
+        pages = [labels.get(p, p) for p in obj.allowed_pages_list]
+        return ", ".join(pages) if pages else "—"
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
