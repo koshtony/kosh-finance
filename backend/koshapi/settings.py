@@ -154,3 +154,23 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 50,
 }
+
+# Django's own default LOGGING config only sends request-handling errors to
+# the console when DEBUG=True, so in production (DEBUG=False, no ADMINS/email
+# configured) an unhandled exception was previously logged nowhere — just a
+# generic 500 page with no trace in Railway's logs. Make unhandled request
+# errors show up in stderr (Railway's deploy logs) regardless of DEBUG.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {"class": "logging.StreamHandler"},
+    },
+    "loggers": {
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+    },
+}

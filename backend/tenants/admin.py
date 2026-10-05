@@ -1,6 +1,6 @@
 from django import forms
 from django.contrib import admin
-from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from .models import Membership, Tenant
 from .scoping import tenant_ids_for_user
@@ -87,7 +87,7 @@ class MembershipAdmin(admin.ModelAdmin):
     @admin.display(description="Allowed pages")
     def allowed_pages_display(self, obj):
         if obj.is_admin:
-            return format_html("<em>All pages (admin)</em>")
+            return mark_safe("<em>All pages (admin)</em>")
         labels = dict(Membership.PAGE_CHOICES)
         pages = [labels.get(p, p) for p in obj.allowed_pages_list]
         return ", ".join(pages) if pages else "—"
