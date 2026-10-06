@@ -32,16 +32,14 @@ AppUser _memberToAppUser(dynamic m, String username) => AppUser(
 class AuthRepository {
   final _api = ApiClient.instance;
 
-  /// Returns the signed-in session, or null for plain bad credentials.
-  /// Throws [NoTenantAccessException] if the credentials are valid but the
-  /// account isn't a member of any tenant.
-  Future<AuthSession?> login(String username, String password) async {
-    dynamic tokenRes;
-    try {
-      tokenRes = await _api.post('/auth/token/', {'username': username, 'password': password});
-    } on ApiException {
-      return null;
-    }
+  /// Returns the signed-in session. Throws [ApiException] — with the real
+  /// reason, e.g. "Unable to log in with provided credentials." for a bad
+  /// password or "Could not reach the server..." for a connectivity
+  /// problem — straight from the API rather than masking every failure
+  /// behind one generic message. Throws [NoTenantAccessException] if the
+  /// credentials are valid but the account isn't a member of any tenant.
+  Future<AuthSession> login(String username, String password) async {
+    final tokenRes = await _api.post('/auth/token/', {'username': username, 'password': password});
     _api.token = tokenRes['token'] as String;
 
     final me = await _api.get('/me/') as Map<String, dynamic>;

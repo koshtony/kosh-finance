@@ -27,11 +27,6 @@ class AuthStore extends ChangeNotifier {
     try {
       final session = await repo.login(username.trim(), password);
       busy = false;
-      if (session == null) {
-        loginError = 'Incorrect username or password.';
-        notifyListeners();
-        return false;
-      }
       currentUser = session.user;
       notifyListeners();
       await refreshUsers();
