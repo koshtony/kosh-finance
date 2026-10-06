@@ -14,7 +14,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _usernameController = TextEditingController(text: 'admin');
+  final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscure = true;
 
@@ -69,6 +69,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                 prefixIcon: Icon(Icons.person_outline),
                               ),
                               textInputAction: TextInputAction.next,
+                              textCapitalization: TextCapitalization.none,
+                              autocorrect: false,
+                              enableSuggestions: false,
                             ),
                             const SizedBox(height: 14),
                             TextField(
@@ -109,13 +112,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           ],
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'First time here? Default login is admin / admin — '
-                      'change the password from Settings once you\'re in.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 11, color: kNeutralColor),
                     ),
                   ],
                 ),
