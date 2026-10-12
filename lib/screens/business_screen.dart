@@ -22,12 +22,15 @@ class BusinessScreen extends StatefulWidget {
 
 class _BusinessScreenState extends State<BusinessScreen> {
   String? _selected;
+  TimeRange _range = TimeRange.allTime;
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<FinanceStore>();
     final businesses = store.distinctBusinesses;
     _selected ??= businesses.isNotEmpty ? businesses.first : null;
+
+    void onRangeChanged(TimeRange r) => setState(() => _range = r);
 
     return DefaultTabController(
       length: 4,
@@ -58,9 +61,9 @@ class _BusinessScreenState extends State<BusinessScreen> {
         body: _selected == null
             ? const Center(child: Text('No businesses yet'))
             : TabBarView(children: [
-                _BusinessOverview(business: _selected!),
-                _BusinessRevenueList(business: _selected!),
-                _BusinessExpenseList(business: _selected!),
+                _BusinessOverview(business: _selected!, range: _range, onRangeChanged: onRangeChanged),
+                _BusinessRevenueList(business: _selected!, range: _range, onRangeChanged: onRangeChanged),
+                _BusinessExpenseList(business: _selected!, range: _range, onRangeChanged: onRangeChanged),
                 _BusinessDailySalesTab(business: _selected!),
               ]),
       ),
@@ -68,37 +71,31 @@ class _BusinessScreenState extends State<BusinessScreen> {
   }
 }
 
-class _BusinessOverview extends StatefulWidget {
+class _BusinessOverview extends StatelessWidget {
   final String business;
-  const _BusinessOverview({required this.business});
-
-  @override
-  State<_BusinessOverview> createState() => _BusinessOverviewState();
-}
-
-class _BusinessOverviewState extends State<_BusinessOverview> {
-  TimeRange _range = TimeRange.allTime;
+  final TimeRange range;
+  final ValueChanged<TimeRange> onRangeChanged;
+  const _BusinessOverview({required this.business, required this.range, required this.onRangeChanged});
 
   @override
   Widget build(BuildContext context) {
-    final business = widget.business;
     final store = context.watch<FinanceStore>();
     final revenue = store.businessRevenue.where((r) => r.business == business).toList();
     final expense = store.businessExpense.where((e) => e.business == business).toList();
     final insights = businessInsights(store, business);
 
-    final filteredRevenue = revenue.where((r) => isPeriodInRange(r.year, r.month, _range)).toList();
-    final filteredExpense = expense.where((e) => isPeriodInRange(e.year, e.month, _range)).toList();
+    final filteredRevenue = revenue.where((r) => isPeriodInRange(r.year, r.month, range)).toList();
+    final filteredExpense = expense.where((e) => isPeriodInRange(e.year, e.month, range)).toList();
     final totalRevenue = filteredRevenue.fold<double>(0, (a, r) => a + (r.actual ?? 0));
     final totalExpense = filteredExpense.fold<double>(0, (a, e) => a + (e.actual ?? 0));
 
     final byPeriod = <int, Map<String, double>>{};
-    for (final r in revenue) {
+    for (final r in filteredRevenue) {
       final k = periodKey(r.year, r.month);
       byPeriod.putIfAbsent(k, () => {'rev': 0, 'exp': 0, 'y': r.year.toDouble()});
       byPeriod[k]!['rev'] = byPeriod[k]!['rev']! + (r.actual ?? 0);
     }
-    for (final e in expense) {
+    for (final e in filteredExpense) {
       final k = periodKey(e.year, e.month);
       byPeriod.putIfAbsent(k, () => {'rev': 0, 'exp': 0, 'y': e.year.toDouble()});
       byPeriod[k]!['exp'] = byPeriod[k]!['exp']! + (e.actual ?? 0);
@@ -111,36 +108,36 @@ class _BusinessOverviewState extends State<_BusinessOverview> {
     }).toList();
 
     final byCategory = <String, double>{};
-    for (final e in expense) {
+    for (final e in filteredExpense) {
       byCategory[e.item] = (byCategory[e.item] ?? 0) + (e.actual ?? 0);
     }
 
     return ListView(
       padding: const EdgeInsets.all(14),
       children: [
-        TimeRangeSelector(selected: _range, onChanged: (r) => setState(() => _range = r)),
+        TimeRangeSelector(selected: range, onChanged: onRangeChanged),
         const SizedBox(height: 10),
         SummaryGrid(cards: [
           SummaryCard(
-            title: 'Revenue (${_range.label.toLowerCase()})',
+            title: 'Revenue (${range.label.toLowerCase()})',
             value: formatMoney(totalRevenue),
             icon: Icons.point_of_sale_outlined,
             accentColor: kPositiveColor,
           ),
           SummaryCard(
-            title: 'Expenses (${_range.label.toLowerCase()})',
+            title: 'Expenses (${range.label.toLowerCase()})',
             value: formatMoney(totalExpense),
             icon: Icons.receipt_long_outlined,
             accentColor: kWarningColor,
           ),
           SummaryCard(
-            title: 'Net profit (${_range.label.toLowerCase()})',
+            title: 'Net profit (${range.label.toLowerCase()})',
             value: formatMoney(totalRevenue - totalExpense),
             icon: Icons.account_balance_outlined,
             accentColor: (totalRevenue - totalExpense) >= 0 ? kPositiveColor : kWarningColor,
           ),
           SummaryCard(
-            title: 'Margin (${_range.label.toLowerCase()})',
+            title: 'Margin (${range.label.toLowerCase()})',
             value: totalRevenue == 0
                 ? '—'
                 : '${(((totalRevenue - totalExpense) / totalRevenue) * 100).toStringAsFixed(0)}%',
@@ -154,7 +151,8 @@ class _BusinessOverviewState extends State<_BusinessOverview> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Revenue vs expense (full history)', style: TextStyle(fontWeight: FontWeight.w700)),
+                Text('Revenue vs expense (${range.label.toLowerCase()})',
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
                 const SizedBox(height: 10),
                 TrendChart(
                   periodLabels: labels,
@@ -179,7 +177,8 @@ class _BusinessOverviewState extends State<_BusinessOverview> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Cost breakdown', style: TextStyle(fontWeight: FontWeight.w700)),
+                Text('Cost breakdown (${range.label.toLowerCase()})',
+                    style: const TextStyle(fontWeight: FontWeight.w700)),
                 const SizedBox(height: 10),
                 CategoryBars(data: byCategory, color: kBrandColor),
               ],
@@ -196,44 +195,58 @@ class _BusinessOverviewState extends State<_BusinessOverview> {
 
 class _BusinessRevenueList extends StatelessWidget {
   final String business;
-  const _BusinessRevenueList({required this.business});
+  final TimeRange range;
+  final ValueChanged<TimeRange> onRangeChanged;
+  const _BusinessRevenueList({required this.business, required this.range, required this.onRangeChanged});
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<FinanceStore>();
-    final items = store.businessRevenue.where((r) => r.business == business).toList()
+    final items = store.businessRevenue
+        .where((r) => r.business == business && isPeriodInRange(r.year, r.month, range))
+        .toList()
       ..sort((a, b) => periodKey(b.year, b.month).compareTo(periodKey(a.year, a.month)));
 
     return Scaffold(
-      body: items.isEmpty
-          ? const Center(child: Text('No revenue recorded yet'))
-          : ListView.separated(
-              padding: const EdgeInsets.all(14),
-              itemCount: items.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (ctx, i) {
-                final e = items[i];
-                final diff = (e.actual ?? 0) - (e.expected ?? 0);
-                return Card(
-                  child: ListTile(
-                    onTap: () => showBusinessRevenueDialog(context, store, existing: e),
-                    title: Text(shortPeriodLabel(e.year, e.month)),
-                    subtitle: Text('Expected ${formatMoney(e.expected)}'),
-                    trailing: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(formatMoney(e.actual), style: const TextStyle(fontWeight: FontWeight.w700)),
-                        Text(
-                          diff >= 0 ? '+${diff.toStringAsFixed(0)}' : diff.toStringAsFixed(0),
-                          style: TextStyle(fontSize: 11, color: diff >= 0 ? kPositiveColor : kWarningColor),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
+            child: TimeRangeSelector(selected: range, onChanged: onRangeChanged),
+          ),
+          Expanded(
+            child: items.isEmpty
+                ? const Center(child: Text('No revenue recorded in this period'))
+                : ListView.separated(
+                    padding: const EdgeInsets.all(14),
+                    itemCount: items.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (ctx, i) {
+                      final e = items[i];
+                      final diff = (e.actual ?? 0) - (e.expected ?? 0);
+                      return Card(
+                        child: ListTile(
+                          onTap: () => showBusinessRevenueDialog(context, store, existing: e),
+                          title: Text(shortPeriodLabel(e.year, e.month)),
+                          subtitle: Text('Expected ${formatMoney(e.expected)}'),
+                          trailing: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(formatMoney(e.actual), style: const TextStyle(fontWeight: FontWeight.w700)),
+                              Text(
+                                diff >= 0 ? '+${diff.toStringAsFixed(0)}' : diff.toStringAsFixed(0),
+                                style: TextStyle(fontSize: 11, color: diff >= 0 ? kPositiveColor : kWarningColor),
+                              ),
+                            ],
+                          ),
                         ),
-                      ],
-                    ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => showBusinessRevenueDialog(context, store, defaultBusiness: business),
         child: const Icon(Icons.add),
@@ -244,40 +257,54 @@ class _BusinessRevenueList extends StatelessWidget {
 
 class _BusinessExpenseList extends StatelessWidget {
   final String business;
-  const _BusinessExpenseList({required this.business});
+  final TimeRange range;
+  final ValueChanged<TimeRange> onRangeChanged;
+  const _BusinessExpenseList({required this.business, required this.range, required this.onRangeChanged});
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<FinanceStore>();
-    final items = store.businessExpense.where((e) => e.business == business).toList()
+    final items = store.businessExpense
+        .where((e) => e.business == business && isPeriodInRange(e.year, e.month, range))
+        .toList()
       ..sort((a, b) => periodKey(b.year, b.month).compareTo(periodKey(a.year, a.month)));
 
     return Scaffold(
-      body: items.isEmpty
-          ? const Center(child: Text('No expenses recorded yet'))
-          : ListView.separated(
-              padding: const EdgeInsets.all(14),
-              itemCount: items.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (ctx, i) {
-                final e = items[i];
-                final over = (e.actual ?? 0) > (e.estimated ?? 0);
-                return Card(
-                  child: ListTile(
-                    onTap: () => showBusinessExpenseDialog(context, store, existing: e),
-                    title: Text(e.item, style: const TextStyle(fontWeight: FontWeight.w600)),
-                    subtitle: Text('${shortPeriodLabel(e.year, e.month)} · budget ${formatMoney(e.estimated)}'),
-                    trailing: Text(
-                      formatMoney(e.actual),
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: over ? kWarningColor : Colors.black87,
-                      ),
-                    ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
+            child: TimeRangeSelector(selected: range, onChanged: onRangeChanged),
+          ),
+          Expanded(
+            child: items.isEmpty
+                ? const Center(child: Text('No expenses recorded in this period'))
+                : ListView.separated(
+                    padding: const EdgeInsets.all(14),
+                    itemCount: items.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (ctx, i) {
+                      final e = items[i];
+                      final over = (e.actual ?? 0) > (e.estimated ?? 0);
+                      return Card(
+                        child: ListTile(
+                          onTap: () => showBusinessExpenseDialog(context, store, existing: e),
+                          title: Text(e.item, style: const TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: Text('${shortPeriodLabel(e.year, e.month)} · budget ${formatMoney(e.estimated)}'),
+                          trailing: Text(
+                            formatMoney(e.actual),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: over ? kWarningColor : Colors.black87,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => showBusinessExpenseDialog(context, store, defaultBusiness: business),
         child: const Icon(Icons.add),

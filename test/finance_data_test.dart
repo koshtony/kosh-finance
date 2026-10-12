@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:kosh_finance/models/models.dart';
+import 'package:kosh_finance/services/api_client.dart';
 import 'package:kosh_finance/services/auth_repository.dart';
 import 'package:kosh_finance/services/finance_repository.dart';
 import 'package:kosh_finance/services/finance_store.dart';
@@ -13,9 +14,10 @@ import 'package:kosh_finance/utils/time_range.dart';
 void main() {
   setUpAll(() async {
     final auth = AuthRepository();
-    final session = await auth.login('test_admin', 'kosh-test-admin-1');
-    if (session == null) {
-      throw StateError('Could not log in as test_admin — is the seeded test tenant reachable?');
+    try {
+      await auth.login('test_admin', 'kosh-test-admin-1');
+    } catch (e) {
+      throw StateError('Could not log in as test_admin — is the seeded test tenant reachable? ($e)');
     }
   });
 
@@ -72,11 +74,12 @@ void main() {
   test('test_admin can authenticate and a wrong password is rejected', () async {
     final auth = AuthRepository();
     final session = await auth.login('test_admin', 'kosh-test-admin-1');
-    expect(session, isNotNull);
-    expect(session!.user.isAdmin, isTrue);
+    expect(session.user.isAdmin, isTrue);
 
-    final wrongPassword = await auth.login('test_admin', 'wrong-password');
-    expect(wrongPassword, isNull);
+    expect(
+      () => auth.login('test_admin', 'wrong-password'),
+      throwsA(isA<ApiException>()),
+    );
   });
 
   test('admin can create a restricted user with limited page access', () async {

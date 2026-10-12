@@ -89,16 +89,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Income vs expense trend (full history)',
-                        style: TextStyle(fontWeight: FontWeight.w700)),
+                    Text('Income vs expense trend (${_range.label.toLowerCase()})',
+                        style: const TextStyle(fontWeight: FontWeight.w700)),
                     const SizedBox(height: 10),
                     TrendChart(
-                      periodLabels: periods.map((p) => p.label).toList(),
+                      periodLabels: filtered.map((p) => p.label).toList(),
                       series: [
                         TrendSeries('Income', kPositiveColor,
-                            periods.map((p) => p.totalIncomeActual).toList()),
+                            filtered.map((p) => p.totalIncomeActual).toList()),
                         TrendSeries('Expense', kWarningColor,
-                            periods.map((p) => p.totalExpenseActual).toList()),
+                            filtered.map((p) => p.totalExpenseActual).toList()),
                       ],
                     ),
                     const SizedBox(height: 8),
